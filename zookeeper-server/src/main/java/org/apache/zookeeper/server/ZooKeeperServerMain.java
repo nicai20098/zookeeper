@@ -102,14 +102,17 @@ public class ZooKeeperServerMain {
         } catch (JMException e) {
             LOG.warn("Unable to register log4j JMX control", e);
         }
-
+        // 创建服务配置对象
         ServerConfig config = new ServerConfig();
+        // 如果入参只有一个， 则认为是配置文件的路径
         if (args.length == 1) {
+            // 解析配置文件
             config.parse(args[0]);
         } else {
+            // 参数有多个， 解析参数
             config.parse(args);
         }
-
+        // 根据配置运行服务
         runFromConfig(config);
     }
 
@@ -136,28 +139,40 @@ public class ZooKeeperServerMain {
             // so rather than spawning another thread, we will just call
             // run() in this thread.
             // create a file logger url from the command line args
+            // 创建FileTxnSnapLog数据管理器，提供了一系列操作数据文件的接口，如事务日志文件和快照数据文件
             txnLog = new FileTxnSnapLog(config.dataLogDir, config.dataDir);
             JvmPauseMonitor jvmPauseMonitor = null;
             if (config.jvmPauseMonitorToRun) {
                 jvmPauseMonitor = new JvmPauseMonitor(config);
             }
+            // 初始化zkServer对象
             final ZooKeeperServer zkServer = new ZooKeeperServer(jvmPauseMonitor, txnLog, config.tickTime, config.minSessionTimeout, config.maxSessionTimeout, config.listenBacklog, null, config.initialConfig);
             txnLog.setServerStats(zkServer.serverStats());
 
             // Registers shutdown handler which will be used to know the
             // server error or shutdown state changes.
+            // 服务结束钩子，用于知道服务器错误或者关闭状态更改
             final CountDownLatch shutdownLatch = new CountDownLatch(1);
             zkServer.registerServerShutdownHandler(new ZooKeeperServerShutdownHandler(shutdownLatch));
 
             // Start Admin server
+            // 创建admin服务，用于接收请求（创建jetty服务）
             adminServer = AdminServerFactory.createAdminServer();
+            // 设置zookeeper服务
             adminServer.setZooKeeperServer(zkServer);
+            // adminServer3.5.0之后支持的特性，启动了jettyServer,默认端口8080，访问此端口可以获取zookeeper服务的相关信息
             adminServer.start();
 
             boolean needStartZKServer = true;
+            //------启动zookeeperServer
+            //判断配置文件中clientPortAddress是否为null
             if (config.getClientPortAddress() != null) {
+                // ServerCnxnFactory是zookeeper中的重要组件，服务处理客户端与服务器的连接
+                // 初始化server端IO对象，默认是NIOServerCnxnFactory：java原生NIO处理网络IO事件
                 cnxnFactory = ServerCnxnFactory.createFactory();
+                // 初始化配置信息
                 cnxnFactory.configure(config.getClientPortAddress(), config.getMaxClientCnxns(), config.getClientPortListenBacklog(), false);
+                // 启动服务：此方法除了启动ServerCnxnFactory还会启动zookeeper
                 cnxnFactory.startup(zkServer);
                 // zkServer has been started. So we don't need to start it again in secureCnxnFactory.
                 needStartZKServer = false;
@@ -167,7 +182,9 @@ public class ZooKeeperServerMain {
                 secureCnxnFactory.configure(config.getSecureClientPortAddress(), config.getMaxClientCnxns(), config.getClientPortListenBacklog(), true);
                 secureCnxnFactory.startup(zkServer, needStartZKServer);
             }
-
+            // 定时清理容器节点
+            // container ZNodes是3.6版本之后新增的节点类型， container类型的节点会在它没有子节点时
+            // 被删除（新建的Container节点除外），该类就是用来周期性的进行检查清理工作
             containerManager = new ContainerManager(
                 zkServer.getZKDatabase(),
                 zkServer.firstProcessor,
@@ -183,7 +200,7 @@ public class ZooKeeperServerMain {
             // Watch status of ZooKeeper server. It will do a graceful shutdown
             // if the server is not running or hits an internal error.
             shutdownLatch.await();
-
+            // 关闭服务
             shutdown();
 
             if (cnxnFactory != null) {
